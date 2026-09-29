@@ -1,0 +1,21 @@
+# OpenTofu / Terraform working state
+.terraform/
+.terraform.tfstate.lock.info
+crash.log
+crash.*.log
+*.tfstate
+*.tfstate.*
+
+# Variable files hold credentials. Examples are tracked, real values are not.
+*.tfvars
+!terraform.tfvars.example
+
+# Provider overrides
+override.tf
+override.tf.json
+*_override.tf
+*_override.tf.json
+
+# Editor / OS
+.DS_Store
+*.swp
