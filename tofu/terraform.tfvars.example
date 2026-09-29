@@ -1,0 +1,15 @@
+# Copy to terraform.tfvars (gitignored) and fill in.
+# Prefer the PROXMOX_VE_ENDPOINT and PROXMOX_VE_API_TOKEN environment variables
+# over writing credentials to disk.
+
+proxmox_endpoint   = "https://pve.lab.internal:8006/"
+proxmox_api_token  = "tofu@pve!provision=00000000-0000-0000-0000-000000000000"
+proxmox_insecure   = true
+
+node_name          = "pve"
+container_id       = 900
+container_hostname = "tofu-worker"
+
+container_template = "local:vztmpl/debian-12-standard_12.7-1_amd64.tar.zst"
+datastore_id       = "local-lvm"
+ssh_public_key     = "ssh-ed25519 AAAA... you@host"
