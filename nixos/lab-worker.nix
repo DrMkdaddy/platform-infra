@@ -9,6 +9,10 @@
 
   networking.hostName = "lab-worker";
 
+  # The machine is an LXC container provisioned by OpenTofu. There is no
+  # bootloader and the root filesystem is provided by the Proxmox host.
+  boot.isContainer = true;
+
   # Inject the operator key. Replace with the real public key before deploying.
   users.users.admin.openssh.authorizedKeys.keys = [
     # "ssh-ed25519 AAAA... you@workstation"
