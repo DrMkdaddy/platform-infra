@@ -128,8 +128,8 @@ workstation failure.
 ## Scope
 
 Lab and reference infrastructure. Self-hosted, no external customers, no paid tiers.
-The Proxmox provider and the NixOS configuration are exercised on the same hardware
-the runbooks describe.
+The Proxmox provider and the NixOS configuration target the same hardware the runbooks
+describe.
 
 ## License
 
