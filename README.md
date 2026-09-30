@@ -1,93 +1,136 @@
 # platform-infra
 
-Declarative infrastructure for a private Proxmox VE lab: OpenTofu provisions the
-machines, NixOS configures them, and every failure mode has a written procedure.
+Declarative infrastructure for a private Proxmox VE lab. OpenTofu provisions the hosts,
+NixOS configures them, and every failure mode has a documented recovery procedure.
 
-The split is deliberate:
+## Overview
 
-- **OpenTofu provisions the resource.** Containers, machines, storage, and network
-  are described in HCL and reconciled with `plan` / `apply`.
-- **NixOS configures the machine.** Flake-based host configuration, atomic
-  activation, rollback for free. The host definition never drifts from the repo.
+The stack is split by responsibility. Provisioning and configuration are separate
+layers with separate tools, so neither can drift into the other.
 
-Nothing here is clicked through the Proxmox web UI. The web UI is a read-only view
-of what the code has already done.
-
-## Why it is built this way
-
-Infrastructure that only exists in a hypervisor console cannot be reviewed, diffed,
-recreated, or rolled back. Every change here is a commit a second engineer can read
-before it runs, and every resource can be destroyed and rebuilt from the same source.
-
-The second reason is failure practice. [`RUNBOOKS.md`](RUNBOOKS.md) covers the modes
-this lab is built to survive: a bad NixOS generation, OpenTofu state drift, disk
-pressure, an OOM kill, a bad rollout, and a full host restore. A runbook that has
-never been run is a guess, so they are meant to be drilled.
-
-## Layout
+| Layer | Tool | Responsibility |
+| :-- | :-- | :-- |
+| Provisioning | OpenTofu (`bpg/proxmox`) | containers, machines, storage, network |
+| Configuration | NixOS flakes | host settings, services, users, firewall |
+| Workloads | Podman (OCI) | container images declared in Nix |
+| Observability | Prometheus node-exporter | host metrics |
+| Operations | [`RUNBOOKS.md`](RUNBOOKS.md) | detection and recovery procedures |
 
 ```
-flake.nix                       devShell + NixOS host configurations
-modules/
-  lab-host.nix                  shared host config: ssh, firewall, podman, node-exporter
-  stanza-service.nix            declarative service (typed options, systemd-managed)
-nixos/
-  lab-worker.nix                one host definition
-tofu/
-  versions.tf                   provider and version constraints, state backend
-  providers.tf                  Proxmox provider wiring
-  variables.tf                  inputs, secrets marked sensitive
-  main.tf                       the managed container
-  outputs.tf                    values exported after apply
-  terraform.tfvars.example      template for local credentials
+                    operator
+                       |
+          tofu plan / apply | nixos-rebuild
+                       |
+              +--------v---------+
+              |  Proxmox VE node |
+              |  API managed,    |
+              |  no UI edits     |
+              +--------+---------+
+                       |
+         +-------------v-----------------+
+         |  lab-worker (NixOS)           |
+         |  sshd  firewall  podman       |
+         |  node-exporter                |
+         |  +-------------------------+  |
+         |  | stanza-api (container)  |  |
+         |  +-------------------------+  |
+         +-------------------------------+
+```
+
+## Principles
+
+- The repository is the source of truth. The Proxmox web UI is a read-only view of
+  what the code has already applied.
+- No hand edits. A manual change is drift and is reverted on the next apply.
+- Reproducible. Any host can be destroyed and rebuilt from this repository.
+- Reversible. NixOS activates atomically; a bad configuration is one command from
+  the previous generation.
+
+## Repository layout
+
+```
+flake.nix                       dev shell and NixOS host configurations
+modules/lab-host.nix            shared host configuration
+modules/stanza-service.nix      declarative service (typed options, systemd-managed)
+nixos/lab-worker.nix            host definition
+tofu/                           OpenTofu provisioning
+  versions.tf  providers.tf  variables.tf  main.tf  outputs.tf
+  terraform.tfvars.example
 RUNBOOKS.md                     failure procedures
-.github/workflows/ci.yml        tofu fmt/validate, nix flake check, markdown lint
+.github/workflows/ci.yml        format, validate, and flake checks
 ```
 
-## Prerequisites
+## Requirements
 
-- Nix with flakes enabled (the devShell supplies OpenTofu)
-- A Proxmox VE node reachable over its API
-- An API token with permission to create containers on the target node
+- Nix with flakes enabled. The dev shell supplies OpenTofu, tflint, and jq.
+- A Proxmox VE node reachable over its API.
+- An API token permitted to create containers on the target node.
 
-Create the token on the node (run as root on the Proxmox host):
+## Provisioning
+
+Create the API token on the Proxmox host:
 
 ```bash
 pveum user token add tofu@pve provision --privsep 0
 ```
 
-## Provision the resource
+Apply the plan from the dev shell:
 
 ```bash
 nix develop
+
 export PROXMOX_VE_ENDPOINT=https://<node>:8006/
 export PROXMOX_VE_API_TOKEN=<token-id>=<secret>
 
 cd tofu
 tofu init
 tofu validate
-tofu plan      # safe to read
-tofu apply     # creates the container
+tofu plan
+tofu apply
 ```
 
-Teardown is `tofu destroy`, which removes exactly what the state file tracks.
+`tofu plan` is safe to read. `tofu destroy` removes exactly the resources recorded in
+state.
 
-## Configure the machine
+## Configuration
 
 ```bash
 nixos-rebuild switch --flake .#lab-worker --target-host admin@<ip>
 ```
 
-Rollback is `nixos-rebuild switch --rollback`.
+Rollback to the previous generation:
+
+```bash
+nixos-rebuild switch --rollback
+```
+
+## Operations
+
+[`RUNBOOKS.md`](RUNBOOKS.md) documents the failure modes this lab is built to survive
+and the recovery for each: configuration rollback, OpenTofu state drift, disk
+pressure, OOM kills, failed rollouts, and host restore. They are drilled on the same
+hardware they describe.
+
+## Continuous integration
+
+`.github/workflows/ci.yml` runs on every push and pull request:
+
+- `tofu fmt -check -recursive`, `tofu init -backend=false`, `tofu validate`
+- `nix flake check --no-build --all-systems`
+- markdown lint
 
 ## State
 
-State is local for the lab. Before this touches anything shared, move it to a remote
-backend with locking, so two operators cannot apply at once and so state survives a
+State is local for the lab. Before this manages shared infrastructure, move it to a
+backend with locking so concurrent applies cannot conflict and state survives a
 workstation failure.
 
-## Status
+## Scope
 
-Lab and reference work only. Self-hosted, no external customers, no paid tiers.
-The Proxmox provider and NixOS configuration are the parts that get exercised; the
-runbooks are drilled on the same hardware they describe.
+Lab and reference infrastructure. Self-hosted, no external customers, no paid tiers.
+The Proxmox provider and the NixOS configuration are exercised on the same hardware
+the runbooks describe.
+
+## License
+
+MIT. See [LICENSE](LICENSE).

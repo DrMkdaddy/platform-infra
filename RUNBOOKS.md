@@ -1,159 +1,148 @@
-# RUNBOOKS.md — Failure procedures
+# Runbooks
 
-Procedures for the failure modes this lab is built to survive. Each one names the
-symptom, how it is detected, the repair, and the durable change that stops it recurring.
+Operational procedures for `platform-infra`. Each entry states the failure, how it is
+detected, the recovery, the validation that the failure is cleared, and the prevention
+that stops it recurring.
 
-These are drills, not war stories. The point of running them here is that the first
-time you meet the failure is not in production.
+These are drills, not incident records. They are executed on the same hardware they
+describe. A recovery that has never been run is an assumption, not a capability.
+
+| # | Failure | Impact |
+| :-- | :-- | :-- |
+| 1 | Bad NixOS generation | host runs a broken configuration |
+| 2 | OpenTofu state drift | plan proposes destructive changes |
+| 3 | Disk pressure | writes fail, services degrade |
+| 4 | Container OOM kill | service restarts in a loop |
+| 5 | Failed service rollout | new image or config is unhealthy |
+| 6 | Host loss or corruption | host must be rebuilt |
 
 ---
 
-## 1. A bad NixOS generation is active
+## 1. Revert a bad NixOS generation
 
-**Symptom:** the host boots or runs with a configuration that broke something
-(service down, network misconfigured, SSH refused).
+**Impact:** the host runs a configuration that broke a service, the network, or SSH.
 
-**Detection:** the service is unreachable, or `systemctl --failed` is non-empty after a
-`nixos-rebuild switch`.
+**Detection:** the affected service is unreachable, or `systemctl --failed` is non-empty
+after a `nixos-rebuild switch`.
 
-**Repair:**
+**Recovery:**
 
 ```bash
-# See what generations exist
 nix-env --list-generations --profile /nix/var/nix/profiles/system
-
-# Roll back to the previous known-good generation
-nixos-rebuild switch --rollback >/dev/null 2>&1 || \
-  /nix/var/nix/profiles/system-<N-1>-link/bin/switch-to-configuration switch
-
-reboot   # if the fault is in early boot
+nixos-rebuild switch --rollback
+# If early boot is affected, activate the previous generation directly and reboot:
+/nix/var/nix/profiles/system-<N-1>-link/bin/switch-to-configuration switch
+reboot
 ```
 
-**Verification:** the failed unit is gone from `systemctl --failed`, and the service
-answers on its port.
+**Validation:** the failed unit no longer appears in `systemctl --failed`, and the
+service responds on its port.
 
-**Durable change:** fix the module in the repo, rebuild forward, and never hand-edit
-the running system. The repo is the source of truth; the generation was a symptom.
-
-**Probe to expect:** why does rollback work at the system level? What is a generation?
+**Prevention:** fix the module in the repository and rebuild forward. The generation was
+a symptom; the repository is the source of truth.
 
 ---
 
-## 2. OpenTofu state has drifted from reality
+## 2. Reconcile OpenTofu state drift
 
-**Symptom:** `tofu plan` wants to destroy or recreate a container that is obviously
-still running, because someone changed it in the Proxmox UI.
+**Impact:** `tofu plan` proposes destroying or recreating a resource that is still
+running, because it was changed outside the code.
 
-**Detection:** a plan with unexpected `-/+ destroy and then create` on a resource that
-should be untouched.
+**Detection:** a plan containing an unexpected `-/+ destroy and then create`.
 
-**Repair:**
+**Recovery:**
 
 ```bash
 cd tofu
-tofu refresh                 # read reality back into state
-tofu plan                    # read the diff before acting
-# If the resource exists but is untracked:
-tofu import proxmox_virtual_environment_container.worker <node>/<vm_id>
+tofu refresh                                  # read reality into state
+tofu plan                                     # inspect the diff before acting
+tofu import proxmox_virtual_environment_container.worker <node>/<vm_id>   # if untracked
 ```
 
-**Verification:** `tofu plan` reports no changes on a clean tree.
+**Validation:** `tofu plan` reports no changes on a clean tree.
 
-**Durable change:** the Proxmox UI is read-only in this workflow. Any real change is a
-commit, review, and apply. Move state to a locking backend before a second operator
-can apply.
-
-**Probe to expect:** what happens when reality and state disagree? When is `force-unlock`
-safe?
+**Prevention:** the Proxmox UI is read-only in this workflow; every real change is a
+commit, a review, and an apply. Move state to a locking backend before a second
+operator can apply.
 
 ---
 
-## 3. Disk pressure on the host
+## 3. Recover from disk pressure
 
-**Symptom:** writes fail, services degrade, the Nix store grows without bound.
+**Impact:** writes fail, services degrade, and the Nix store grows without bound.
 
 **Detection:** node-exporter filesystem alerts, or a full `/nix` mount.
 
-**Repair:**
+**Recovery:**
 
 ```bash
 df -h / /nix
-sudo nix-collect-garbage --delete-older-than 7d
-sudo nix-store --optimise
-# Drop old generations if still tight
-sudo nix-env --delete-generations old --profile /nix/var/nix/profiles/system
+nix-collect-garbage --delete-older-than 7d
+nix-store --optimise
+nix-env --delete-generations old --profile /nix/var/nix/profiles/system
 ```
 
-**Verification:** free space recovered, `systemctl --failed` empty.
+**Validation:** free space is recovered and `systemctl --failed` is empty.
 
-**Durable change:** `nix.gc.automatic` is enabled in `modules/lab-host.nix`
-(weekly, older than 14 days). Alert on filesystem usage, not on it being full.
-
-**Probe to expect:** why does a Nix host grow differently from a package-manager host?
+**Prevention:** `nix.gc.automatic` is enabled in `modules/lab-host.nix` (weekly, older
+than 14 days). Alert on filesystem usage before it reaches capacity.
 
 ---
 
-## 4. A container is OOM-killed
+## 4. Recover a container from an OOM kill
 
-**Symptom:** the service restarts in a loop; logs end abruptly.
+**Impact:** the service restarts in a loop and requests fail during the gaps.
 
-**Detection:** `systemctl status podman-stanza-api`, `dmesg | grep -i oom`, container
-exit code 137.
+**Detection:** container exit code 137, `dmesg | grep -i oom`, or an abrupt end to the
+service log.
 
-**Repair:** raise the container memory bound deliberately, or fix the leak. Confirm
-with `podman stats` under load.
+**Recovery:** raise the memory bound deliberately or fix the leak, then confirm the
+new bound under load with `podman stats`.
 
-**Verification:** sustained load no longer produces exit 137.
+**Validation:** sustained load no longer produces exit code 137.
 
-**Durable change:** resource bounds are declared, not defaulted. Add a load test that
-runs before a service is considered healthy.
-
-**Probe to expect:** how do you tell an OOM kill from a crash?
+**Prevention:** resource bounds are declared, not defaulted. A load test runs before a
+service is considered healthy.
 
 ---
 
-## 5. A service rollout is bad
+## 5. Roll back a failed service deployment
 
-**Symptom:** the new image or config is up but unhealthy.
+**Impact:** a new image or configuration is running but unhealthy.
 
-**Detection:** the health endpoint fails; the port is closed; logs show startup errors.
+**Detection:** the health endpoint fails, the port is closed, or logs show startup
+errors.
 
-**Repair:** revert the image tag or config in the repo, then rebuild and redeploy:
+**Recovery:** revert the failing change in the repository and redeploy.
 
 ```bash
-# Revert the change in git, then:
+git revert <commit>
 nixos-rebuild switch --flake .#lab-worker --target-host admin@<ip>
 ```
 
-**Verification:** the health endpoint returns 200 and stays up under load.
+**Validation:** the health endpoint returns 200 and stays up under load.
 
-**Durable change:** pin image digests, not `latest`. A rollout returns to the previous
-generation with one command.
-
-**Probe to expect:** walk me through a rollback you actually performed.
+**Prevention:** pin image digests rather than a moving tag. A rollout returns to the
+previous generation with one command.
 
 ---
 
 ## 6. Restore a host from backup
 
-**Symptom:** a host is lost or corrupted and must be rebuilt.
+**Impact:** a host is lost or corrupted and must be rebuilt.
 
-**Detection:** the host is unreachable and not recoverable in place.
+**Detection:** the host is unreachable and cannot be recovered in place.
 
-**Repair:**
+**Recovery:**
 
 ```bash
-# Re-provision the container/VM from the same OpenTofu plan
-cd tofu && tofu apply
-# Deploy the pinned configuration
+cd tofu && tofu apply                          # re-provision from the same plan
 nixos-rebuild switch --flake .#lab-worker --target-host admin@<ip>
-# Restore stateful data from the ZFS snapshot / backup target
+# restore stateful data from the ZFS snapshot or backup target
 ```
 
-**Verification:** services answer, data matches the last backup, and the host appears in
+**Validation:** services respond, data matches the last backup, and the host appears in
 `tofu state list`.
 
-**Durable change:** snapshot schedule plus a restore drill on the calendar. An untested
-backup is a rumour.
-
-**Probe to expect:** what are your RTO and RPO, and when did you last test them?
+**Prevention:** a snapshot schedule plus a restore drill on the calendar. An untested
+backup is not a backup.
