@@ -16,7 +16,7 @@ layers with separate tools, so neither can drift into the other.
 | Observability | Prometheus node-exporter | host metrics |
 | Operations | [`RUNBOOKS.md`](RUNBOOKS.md) | detection and recovery procedures |
 
-```
+```text
                     operator
                        |
           tofu plan / apply | nixos-rebuild
@@ -48,7 +48,7 @@ layers with separate tools, so neither can drift into the other.
 
 ## Repository layout
 
-```
+```text
 flake.nix                       dev shell and NixOS host configurations
 modules/lab-host.nix            shared host configuration
 modules/stanza-service.nix      declarative service (typed options, systemd-managed)
