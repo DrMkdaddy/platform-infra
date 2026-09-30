@@ -38,16 +38,13 @@ in
       environment = {
         NODE_ENV = "production";
       } // cfg.environment;
-      # A failed container is restarted by systemd; a failing image is caught by
-      # the readiness probe below rather than left half-up.
     };
 
-    # Declarative health check. systemd restarts the unit if this goes red.
-    systemd.services.podman-stanza-api = {
-      serviceConfig = {
-        Restart = "on-failure";
-        RestartSec = "5s";
-      };
+    # systemd owns the lifecycle: on failure the container is restarted with a
+    # short backoff rather than left in a stopped state.
+    systemd.services.podman-stanza-api.serviceConfig = {
+      Restart = "on-failure";
+      RestartSec = "5s";
     };
   };
 }
