@@ -35,5 +35,21 @@
           '';
         };
       });
+
+      # Reusable host configuration, shared by every lab machine.
+      nixosModules.lab-host = import ./modules/lab-host.nix;
+      # Declarative service definitions that run on top of a lab host.
+      nixosModules.stanza-service = import ./modules/stanza-service.nix;
+
+      # A single lab worker. Apply the OpenTofu plan first, then deploy config:
+      #   nixos-rebuild switch --flake .#lab-worker --target-host admin@<ip>
+      nixosConfigurations.lab-worker = nixpkgs.lib.nixosSystem {
+        system = "x86_64-linux";
+        modules = [
+          self.nixosModules.lab-host
+          self.nixosModules.stanza-service
+          ./nixos/lab-worker.nix
+        ];
+      };
     };
 }

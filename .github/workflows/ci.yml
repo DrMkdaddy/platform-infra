@@ -1,0 +1,40 @@
+name: ci
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  tofu:
+    name: OpenTofu format and validate
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: opentofu/setup-opentofu@v1
+        with:
+          tofu_version: 1.8.0
+      - name: Format check
+        run: tofu fmt -check -recursive
+      - name: Init (no backend)
+        run: tofu -chdir=tofu init -backend=false
+      - name: Validate
+        run: tofu -chdir=tofu validate
+
+  nix:
+    name: Flake check
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: cachix/install-nix-action@v27
+      - name: Check flake
+        run: nix flake check --no-build --all-systems
+
+  lint:
+    name: Markdown lint
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: DavidAnson/markdownlint-cli2-action@v16
+        with:
+          globs: "**/*.md"
