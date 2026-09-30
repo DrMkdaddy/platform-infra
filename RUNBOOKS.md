@@ -4,7 +4,7 @@ Operational procedures for `platform-infra`. Each entry states the failure, how 
 detected, the recovery, the validation that the failure is cleared, and the prevention
 that stops it recurring.
 
-These are drills, not incident records. They are executed on the same hardware they
+These are procedures, not incident records. They target the same hardware they
 describe. A recovery that has never been run is an assumption, not a capability.
 
 | # | Failure | Impact |
