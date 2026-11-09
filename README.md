@@ -1,12 +1,12 @@
 # platform-infra
 
-Declarative infrastructure for a private Proxmox VE lab. OpenTofu provisions the hosts,
-NixOS configures them, and every failure mode has a documented recovery procedure.
+Declarative infrastructure for a private Proxmox VE lab. OpenTofu provisions
+containers and VMs, NixOS configures the host, and each known failure mode has a
+runbook.
 
 ## Overview
 
-The stack is split by responsibility. Provisioning and configuration are separate
-layers with separate tools, so neither can drift into the other.
+Provisioning and configuration are separate layers with separate tools.
 
 | Layer | Tool | Responsibility |
 | :-- | :-- | :-- |
@@ -37,14 +37,12 @@ layers with separate tools, so neither can drift into the other.
          +-------------------------------+
 ```
 
-## Principles
+## Rules
 
-- The repository is the source of truth. The Proxmox web UI is a read-only view of
-  what the code has already applied.
-- No hand edits. A manual change is drift and is reverted on the next apply.
-- Reproducible. Any host can be destroyed and rebuilt from this repository.
-- Reversible. NixOS activates atomically; a bad configuration is one command from
-  the previous generation.
+- All changes go through the repository. The Proxmox web UI is read-only.
+- Manual changes are drift and are reverted on the next apply.
+- A host can be destroyed and rebuilt from this repository.
+- NixOS activates atomically; rollback is one command.
 
 ## Repository layout
 
@@ -106,10 +104,9 @@ nixos-rebuild switch --rollback
 
 ## Operations
 
-[`RUNBOOKS.md`](RUNBOOKS.md) documents the failure modes this lab is built to survive
-and the recovery for each: configuration rollback, OpenTofu state drift, disk
-pressure, OOM kills, failed rollouts, and host restore. They are drilled on the same
-hardware they describe.
+[`RUNBOOKS.md`](RUNBOOKS.md) documents the failure modes and recovery steps:
+configuration rollback, OpenTofu state drift, disk pressure, OOM kills, failed
+rollouts, and host restore.
 
 ## Continuous integration
 
@@ -127,9 +124,7 @@ workstation failure.
 
 ## Scope
 
-Lab and reference infrastructure. Self-hosted, no external customers, no paid tiers.
-The Proxmox provider and the NixOS configuration target the same hardware the runbooks
-describe.
+Lab and reference infrastructure; no external customers.
 
 ## License
 
