@@ -14,7 +14,7 @@ Provisioning and configuration are separate layers with separate tools.
 | Configuration | NixOS flakes | host settings, services, users, firewall |
 | Workloads | Podman (OCI) | container images declared in Nix |
 | Observability | Prometheus node-exporter | host metrics |
-| Operations | [`RUNBOOKS.md`](RUNBOOKS.md) | detection and recovery procedures |
+| Operations | [`RUNBOOKS.md`](RUNBOOKS.md) | detection and recovery |
 
 ```text
                     operator
@@ -44,29 +44,9 @@ Provisioning and configuration are separate layers with separate tools.
 - A host can be destroyed and rebuilt from this repository.
 - NixOS activates atomically; rollback is one command.
 
-## Repository layout
-
-```text
-flake.nix                       dev shell and NixOS host configurations
-modules/lab-host.nix            shared host configuration
-modules/stanza-service.nix      declarative service (typed options, systemd-managed)
-nixos/lab-worker.nix            host definition
-tofu/                           OpenTofu provisioning
-  versions.tf  providers.tf  variables.tf  main.tf  outputs.tf
-  terraform.tfvars.example
-RUNBOOKS.md                     failure procedures
-.github/workflows/ci.yml        format, validate, and flake checks
-```
-
-## Requirements
-
-- Nix with flakes enabled. The dev shell supplies OpenTofu, tflint, and jq.
-- A Proxmox VE node reachable over its API.
-- An API token permitted to create containers on the target node.
-
 ## Provisioning
 
-Create the API token on the Proxmox host:
+Create an API token on the Proxmox host:
 
 ```bash
 pveum user token add tofu@pve provision --privsep 0
@@ -87,7 +67,7 @@ tofu plan
 tofu apply
 ```
 
-`tofu plan` is safe to read. `tofu destroy` removes exactly the resources recorded in
+`tofu plan` is safe to read. `tofu destroy` removes the resources recorded in
 state.
 
 ## Configuration
@@ -108,7 +88,7 @@ nixos-rebuild switch --rollback
 configuration rollback, OpenTofu state drift, disk pressure, OOM kills, failed
 rollouts, and host restore.
 
-## Continuous integration
+## CI
 
 `.github/workflows/ci.yml` runs on every push and pull request:
 
@@ -118,9 +98,21 @@ rollouts, and host restore.
 
 ## State
 
-State is local for the lab. Before this manages shared infrastructure, move it to a
-backend with locking so concurrent applies cannot conflict and state survives a
-workstation failure.
+State is local for the lab. Before this manages shared infrastructure, move it
+to a backend with locking so concurrent applies cannot conflict and state
+survives a workstation failure.
+
+## Repository layout
+
+```text
+flake.nix                       dev shell and NixOS host configurations
+modules/lab-host.nix            shared host configuration
+modules/stanza-service.nix      declarative service
+nixos/lab-worker.nix            host definition
+tofu/                           OpenTofu provisioning
+RUNBOOKS.md                     failure procedures
+.github/workflows/ci.yml        format, validate, and flake checks
+```
 
 ## Scope
 
